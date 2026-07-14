@@ -1,0 +1,11 @@
+# Core — chirp generation, playback/recording, signal processing
+numpy>=1.24
+scipy>=1.11
+sounddevice>=0.4.6
+matplotlib>=3.7
+
+# Optional — only needed for Phase 4 if you build the web-based dashboard
+# instead of (or in addition to) the matplotlib radar/waveform views.
+# Comment these back in when you get to dashboard_app.py.
+# flask>=3.0
+# flask-socketio>=5.3
