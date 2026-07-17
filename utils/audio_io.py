@@ -31,14 +31,24 @@ def play_and_record(signal: np.ndarray, sample_rate: int, record_duration_sec: f
     signal = np.asarray(signal, dtype=np.float32)
     record_frames = int(record_duration_sec * sample_rate)
 
+    # sd.playrec's recording length always matches the length of the array
+    # you give it — it has no separate "record for N frames" option. So to
+    # record longer than the signal itself (e.g. record 200ms while only
+    # playing a 15ms chirp), pad the signal with trailing silence up to the
+    # desired recording length before passing it in.
+    if record_frames > signal.shape[0]:
+        padded_signal = np.zeros(record_frames, dtype=np.float32)
+        padded_signal[: signal.shape[0]] = signal
+    else:
+        padded_signal = signal[:record_frames]
+
     try:
-        # sd.playrec plays `signal` and records `record_frames` frames at the
-        # same time, using the default input/output devices.
+        # sd.playrec plays `padded_signal` and records the same number of
+        # frames at the same time, using the default input/output devices.
         recording = sd.playrec(
-            signal.reshape(-1, 1),
+            padded_signal.reshape(-1, 1),
             samplerate=sample_rate,
             channels=1,
-            frames=record_frames if record_frames > signal.shape[0] else None,
         )
         sd.wait()  # block until playback/recording finishes
     except sd.PortAudioError as e:
