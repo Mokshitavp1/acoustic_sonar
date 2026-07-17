@@ -34,16 +34,16 @@ if __name__ == "__main__":
     print(f"Max recorded amplitude: {max_amp:.6f}")
 
     if max_amp < 0.001:
-        print("\n⚠️  Even an audible 2kHz tone isn't being picked up above the noise floor.")
+        print("\n[WARNING] Even an audible 2kHz tone isn't being picked up above the noise floor.")
         print("    This suggests a system audio routing issue (wrong output device, muted")
         print("    output, or system volume near zero) rather than an ultrasonic-specific")
         print("    hardware limit. Check Windows Sound Settings > Output, and turn system")
         print("    volume up.")
     else:
-        print("\n✅ The playback/record loop works — the tone was captured clearly.")
+        print("\n[SUCCESS] The playback/record loop works — the tone was captured clearly.")
         print("    This confirms the earlier near-zero result with the 18-22kHz chirp is")
         print("    specifically an ultrasonic rolloff issue, not a general playback problem.")
-        print("    Run freq_response_test.py next to find your mic's actual usable ceiling.")
+        print("    Run freq_response_test.py next to find your mic's actual usable usable ceiling.")
 
     t_rec = np.linspace(0, RECORD_DURATION_SEC, recorded.shape[0], endpoint=False) * 1000
     plt.figure(figsize=(10, 4))

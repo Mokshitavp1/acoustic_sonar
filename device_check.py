@@ -34,9 +34,9 @@ if __name__ == "__main__":
     print(f"RMS amplitude: {np.sqrt(np.mean(recording**2)):.6f}")
 
     if np.max(np.abs(recording)) < 0.001:
-        print("\n⚠️  Amplitude is still near-zero. The mic likely isn't being captured at all —")
+        print("\n[WARNING] Amplitude is still near-zero. The mic likely isn't being captured at all —")
         print("    check Windows Sound Settings > Input, confirm the right mic is selected")
         print("    and its volume/level isn't muted or set to 0.")
     else:
-        print("\n✅ Mic is capturing normal-range audio. The earlier near-zero amplitude was")
+        print("\n[SUCCESS] Mic is capturing normal-range audio. The earlier near-zero amplitude was")
         print("    likely specific to the ultrasonic chirp frequency range, not a device issue.")
