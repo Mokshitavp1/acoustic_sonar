@@ -16,10 +16,14 @@ import matplotlib.pyplot as plt
 
 sys.path.append(os.path.join(os.path.dirname(__file__), "..", "utils"))
 import audio_io  # noqa: E402
+from audio_io import query_device_sample_rate  # noqa: E402
 
 
 if __name__ == "__main__":
-    SAMPLE_RATE = 48000
+    # Query the actual device rate — never assume 48 kHz.
+    SAMPLE_RATE = query_device_sample_rate()
+    print(f"Device sample rate: {SAMPLE_RATE} Hz")
+
     FREQ_HZ = 2000        # clearly audible, well within any speaker/mic's range
     DURATION_SEC = 0.3    # 300ms tone, long enough to see clearly on a plot
     RECORD_DURATION_SEC = 0.5

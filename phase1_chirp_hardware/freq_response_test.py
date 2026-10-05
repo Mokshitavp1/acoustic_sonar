@@ -42,14 +42,21 @@ import matplotlib.gridspec as gridspec
 sys.path.append(os.path.join(os.path.dirname(__file__), "..", "utils"))
 sys.path.append(os.path.dirname(__file__))
 import audio_io  # noqa: E402
+from audio_io import query_device_sample_rate  # noqa: E402
 from chirp_generator import generate_chirp  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
-# Constants
+# Constants resolved at startup
 # ---------------------------------------------------------------------------
 
-SAMPLE_RATE = 48000          # Hz
+# Query the device's actual preferred sample rate instead of assuming 48 kHz.
+# At 48 kHz: 1 sample = 343 m/s / 48000 Hz / 2 (round-trip) ≈ 3.6 mm.
+# At 44.1 kHz: 1 sample ≈ 3.9 mm.  Sub-sample interpolation in the
+# cross-correlator brings effective resolution well under 1 cm on either.
+SAMPLE_RATE: int = query_device_sample_rate()
+print(f"[calibrator] Device sample rate: {SAMPLE_RATE} Hz")
+
 SWEEP_F_START = 2_000        # Hz  — bottom of the audible probe sweep
 SWEEP_F_END = 12_000         # Hz  — top  (well within any laptop speaker/mic)
 SWEEP_DURATION_SEC = 1.0     # long enough for a clean FFT of narrow bands
@@ -68,7 +75,8 @@ PREFER_HIGH_FACTOR = 0.90
 
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), "..", "config.json")
 
-# Sensible fallback: 4-8 kHz works on every modern laptop
+# Sensible fallback: 4-8 kHz works on every modern laptop.
+# Rate is filled in at runtime after the device query above.
 FALLBACK_CONFIG = {
     "f_start": 4_000,
     "f_end": 8_000,

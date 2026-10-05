@@ -19,6 +19,11 @@ Key design goals
 * **Deterministic latency** — We use sd.playrec (simultaneous play+record)
   with a fixed blocksize so the round-trip timing is as predictable as
   consumer hardware allows.
+
+* **Device-native sample rate** — Never assume 44.1 or 48 kHz.  We query
+  the PortAudio device info and validate against the hardware's preferred
+  rate.  At 48 kHz one sample = ~7 mm of round-trip travel; sub-sample
+  interpolation in the cross-correlator gets us well under 1 cm resolution.
 """
 
 import sys
@@ -26,6 +31,82 @@ import warnings
 import numpy as np
 import sounddevice as sd
 from scipy.io import wavfile
+
+
+# Standard rates we're willing to use, in preference order.
+# We try each against the device and take the first one that works.
+_PREFERRED_RATES = [48_000, 44_100, 96_000, 22_050, 16_000]
+
+
+def query_device_sample_rate(
+    input_device=None,
+    output_device=None,
+    preferred_rates: list[int] = None,
+) -> int:
+    """
+    Return the best sample rate supported by the current default (or
+    specified) audio devices.
+
+    Strategy
+    --------
+    1. Read ``default_samplerate`` from PortAudio's device descriptor
+       for both the input and output device.  If they agree (or one is
+       unset), use that rate directly.
+    2. If they disagree, probe each rate in ``preferred_rates`` with a
+       zero-length sd.check_input_settings / check_output_settings call
+       and pick the first one both sides accept.
+    3. Hard-fallback to 48 000 Hz if everything above fails.
+
+    Parameters
+    ----------
+    input_device, output_device : int or str, optional
+        PortAudio device indices/names.  None means the system default.
+    preferred_rates : list of int, optional
+        Override the default preference list.
+
+    Returns
+    -------
+    int — confirmed sample rate in Hz.
+    """
+    rates_to_try = preferred_rates or _PREFERRED_RATES
+
+    try:
+        in_idx = input_device if input_device is not None else sd.default.device[0]
+        out_idx = output_device if output_device is not None else sd.default.device[1]
+
+        in_info = sd.query_devices(in_idx)
+        out_info = sd.query_devices(out_idx)
+
+        in_rate = int(in_info.get("default_samplerate", 0))
+        out_rate = int(out_info.get("default_samplerate", 0))
+
+        # If both devices report the same preferred rate, use it directly.
+        if in_rate and out_rate and in_rate == out_rate:
+            return in_rate
+
+        # Devices disagree (or one returned 0) — probe the preferred list.
+        for rate in rates_to_try:
+            try:
+                sd.check_input_settings(
+                    device=in_idx, channels=1, dtype="float32", samplerate=rate
+                )
+                sd.check_output_settings(
+                    device=out_idx, channels=1, dtype="float32", samplerate=rate
+                )
+                return rate
+            except sd.PortAudioError:
+                continue
+
+        # If probing failed for all candidates, trust the input device's preference.
+        if in_rate:
+            return in_rate
+        if out_rate:
+            return out_rate
+
+    except Exception:
+        pass  # fall through to hard default
+
+    return 48_000  # absolute last-resort default
 
 
 # ---------------------------------------------------------------------------

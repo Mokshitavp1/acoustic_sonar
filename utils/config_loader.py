@@ -19,18 +19,28 @@ Usage
 import os
 import json
 
+# Import the device-query helper from the same utils/ directory.
+try:
+    import sys as _sys
+    _sys.path.append(os.path.dirname(__file__))
+    from audio_io import query_device_sample_rate as _query_rate
+    _DEVICE_RATE: int = _query_rate()
+except Exception:
+    _DEVICE_RATE = 48_000  # safe last-resort if sounddevice isn't installed yet
+
 # The config file lives at the project root (one level above utils/).
 _DEFAULT_CONFIG_PATH = os.path.join(os.path.dirname(__file__), "..", "config.json")
 
 # Hard-coded fallback: 4-8 kHz is reproduced cleanly by every modern laptop
 # speaker and mic, so the system works out-of-the-box even without running
-# the calibrator first.
+# the calibrator first.  We use the actual device rate queried above so the
+# fallback is already correct for 44.1 kHz-native hardware.
 _FALLBACK = {
     "f_start": 4_000,
     "f_end": 8_000,
-    "sample_rate": 48_000,
+    "sample_rate": _DEVICE_RATE,
     "calibrated": False,
-    "note": "built-in fallback (4-8 kHz) — run freq_response_test.py to auto-calibrate",
+    "note": f"built-in fallback (4-8 kHz @ {_DEVICE_RATE} Hz) — run freq_response_test.py to auto-calibrate",
 }
 
 
