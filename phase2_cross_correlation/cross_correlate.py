@@ -112,7 +112,8 @@ if __name__ == "__main__":
     from chirp_generator import generate_chirp  # noqa: E402
 
     SAMPLE_RATE = 48000
-    chirp_signal = generate_chirp(18000, 22000, 0.015, SAMPLE_RATE)
+    # Use the same audible band as the rest of the system (4-8 kHz, 75 ms)
+    chirp_signal = generate_chirp(4000, 8000, 0.075, SAMPLE_RATE)
 
     bleed_delay_samples = int(0.001 * SAMPLE_RATE)   # 1ms direct bleed
     echo_delay_samples = int(0.006 * SAMPLE_RATE)     # 6ms simulated echo

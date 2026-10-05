@@ -27,21 +27,25 @@ sys.path.append(os.path.join(os.path.dirname(__file__), "phase2_cross_correlatio
 sys.path.append(os.path.join(os.path.dirname(__file__), "phase3_continuous_sensing"))
 
 import audio_io  # noqa: E402
-from chirp_generator import generate_chirp  # noqa: E402
+from chirp_generator import generate_chirp, generate_varied_chirp  # noqa: E402
+from config_loader import load_sonar_config, config_summary  # noqa: E402
 from distance_calc import delay_to_distance  # noqa: E402
 from rolling_buffer import RollingBuffer  # noqa: E402
 from motion_detector import compare_profiles  # noqa: E402
 from continuous_loop import compute_correlation_profile  # noqa: E402
 
 
-# --- Sensing parameters (same as continuous_loop.py) ---
-F_START = 18000
-F_END = 22000
-CHIRP_DURATION_SEC = 0.015
-RECORD_DURATION_SEC = 0.05
-SAMPLE_RATE = 48000
+# --- Sensing parameters — chirp band loaded from auto-calibration ---
+_cfg = load_sonar_config()
+F_START = _cfg["f_start"]
+F_END = _cfg["f_end"]
+SAMPLE_RATE = _cfg["sample_rate"]
+print(f"[main] Loaded sonar config: {config_summary(_cfg)}")
+
+CHIRP_DURATION_SEC = 0.075    # 75 ms chirp: high TBP, barely-audible whoosh
+RECORD_DURATION_SEC = 0.4     # 400 ms: catches echoes up to ~68 m
 MIN_DELAY_SEC = 0.003
-CYCLE_INTERVAL_SEC = 0.3
+CYCLE_INTERVAL_SEC = 0.6      # must be > RECORD_DURATION_SEC
 BUFFER_SIZE = 5
 MOTION_THRESHOLD = 0.15
 
@@ -80,12 +84,23 @@ def sensing_loop(state: SharedSensorState, stop_event: threading.Event):
     """
     Real version of Phase 3's continuous_loop.py, writing results into
     `state` instead of printing them, so the visualization can read them.
+
+    Each cycle regenerates the chirp with a fresh ping_index so the OS
+    acoustic echo canceller (AEC) cannot lock onto a repeating pattern.
+    The same waveform is used as both the playback signal and the
+    correlation template — the matched filter is always exact.
     """
-    emitted = generate_chirp(F_START, F_END, CHIRP_DURATION_SEC, SAMPLE_RATE)
     buffer = RollingBuffer(max_size=BUFFER_SIZE)
+    ping_index = 0
 
     while not stop_event.is_set():
         cycle_start = time.time()
+
+        # Fresh chirp variant for this ping — defeats statistical AEC models.
+        emitted = generate_varied_chirp(
+            F_START, F_END, CHIRP_DURATION_SEC, SAMPLE_RATE, ping_index
+        )
+        ping_index += 1
 
         recorded = audio_io.play_and_record(emitted, SAMPLE_RATE, RECORD_DURATION_SEC)
         lag_times_sec, profile = compute_correlation_profile(

@@ -17,26 +17,30 @@ sys.path.append(os.path.dirname(__file__))
 
 import audio_io  # noqa: E402
 from chirp_generator import generate_chirp  # noqa: E402
+from config_loader import load_sonar_config  # noqa: E402
 from cross_correlate import find_echo_delay  # noqa: E402
 from distance_calc import delay_to_distance  # noqa: E402
 
 
 if __name__ == "__main__":
-    # --- Parameters ---
-    F_START = 18000            # Hz
-    F_END = 22000               # Hz
-    CHIRP_DURATION_SEC = 0.015  # 15ms
-    RECORD_DURATION_SEC = 0.05  # 50ms — enough time for an echo from an
-                                 # object up to ~8.5m away, well beyond a
-                                 # typical room
-    SAMPLE_RATE = 48000          # Hz
+    # --- Load calibrated band (falls back to 4-8 kHz if not yet calibrated) ---
+    _cfg = load_sonar_config()
+    F_START             = _cfg["f_start"]    # Hz
+    F_END               = _cfg["f_end"]      # Hz
+    SAMPLE_RATE         = _cfg["sample_rate"]
 
-    # Ignore anything before this delay as direct speaker-to-mic bleed
-    # rather than a real reflection. 3ms round-trip corresponds to
-    # roughly 51cm, which comfortably clears typical bleed while still
-    # catching close objects. Adjust based on what you saw in Phase 1's
-    # freq_response_test.py / record_playback_test.py plots.
-    MIN_DELAY_SEC = 0.003
+    # 75 ms chirp: long enough for a high time-bandwidth product (good SNR)
+    # while still being a quick, barely-audible whoosh.
+    CHIRP_DURATION_SEC  = 0.075   # 75 ms
+
+    # 400 ms captures echoes from objects up to ~68 m away at 343 m/s.
+    RECORD_DURATION_SEC = 0.4     # 400 ms
+
+    # Ignore the first 3 ms (direct speaker-to-mic bleed, ~51 cm bleed zone).
+    MIN_DELAY_SEC       = 0.003
+
+    print(f"Using chirp: {F_START/1000:.1f}-{F_END/1000:.1f} kHz  "
+          f"{CHIRP_DURATION_SEC*1000:.0f} ms  ({_cfg.get('note', '')})")
 
     print("Point your laptop at a wall or object you can measure with a tape measure.")
     input("Press Enter when ready to emit the chirp and record the echo...")

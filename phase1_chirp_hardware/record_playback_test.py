@@ -17,15 +17,17 @@ sys.path.append(os.path.join(os.path.dirname(__file__), "..", "utils"))
 sys.path.append(os.path.dirname(__file__))
 import audio_io  # noqa: E402
 from chirp_generator import generate_chirp  # noqa: E402
+from config_loader import load_sonar_config  # noqa: E402
 
 
 if __name__ == "__main__":
-    # --- Parameters ---
-    F_START = 18000        # Hz
-    F_END = 22000          # Hz
-    CHIRP_DURATION_SEC = 0.015   # 15ms
-    RECORD_DURATION_SEC = 0.2    # 200ms
-    SAMPLE_RATE = 48000     # Hz
+    # --- Load calibrated band (falls back to 4-8 kHz if not yet calibrated) ---
+    _cfg = load_sonar_config()
+    F_START             = _cfg["f_start"]    # Hz
+    F_END               = _cfg["f_end"]      # Hz
+    SAMPLE_RATE         = _cfg["sample_rate"]
+    CHIRP_DURATION_SEC  = 0.075   # 75 ms
+    RECORD_DURATION_SEC = 0.4     # 400 ms
 
     data_dir = os.path.join(os.path.dirname(__file__), "data")
     os.makedirs(data_dir, exist_ok=True)

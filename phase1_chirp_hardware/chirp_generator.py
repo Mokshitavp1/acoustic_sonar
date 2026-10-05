@@ -42,21 +42,95 @@ def generate_chirp(f_start: float, f_end: float, duration_sec: float, sample_rat
     return waveform.astype(np.float32)
 
 
+# Pre-computed variation table used by generate_varied_chirp.
+# Each entry is (freq_offset_hz, initial_phase_rad).
+# The offsets are small enough to stay within any calibrated band
+# (±60 Hz on a 4 kHz bandwidth is <2 % shift), but large enough that
+# a statistical echo-canceller cannot lock onto a repeating pattern.
+_VARIATION_TABLE: list[tuple[float, float]] = [
+    (   0.0,  0.000),   # ping 0  — baseline
+    ( +55.0,  0.785),   # ping 1  — +55 Hz, π/4 phase
+    ( -55.0,  1.571),   # ping 2  — -55 Hz, π/2 phase
+    ( +30.0,  3.142),   # ping 3  — +30 Hz, π   phase
+    ( -30.0,  2.356),   # ping 4  — -30 Hz, 3π/4 phase
+    ( +60.0,  4.712),   # ping 5  — +60 Hz, 3π/2 phase
+    ( -60.0,  0.524),   # ping 6  — -60 Hz, π/6 phase
+    ( +15.0,  5.497),   # ping 7  — +15 Hz, 7π/4 phase
+]
+
+
+def generate_varied_chirp(
+    f_start: float,
+    f_end: float,
+    duration_sec: float,
+    sample_rate: int,
+    ping_index: int,
+) -> np.ndarray:
+    """
+    Generates a slightly varied chirp for each ping to defeat OS echo
+    cancellers.
+
+    How it works
+    ------------
+    OS acoustic echo cancellation (AEC) builds a statistical model of the
+    loudspeaker signal and subtracts it from the mic input.  If every ping
+    is *identical*, the AEC can lock on and cancel the chirp itself (and
+    therefore any echoes of it), leaving the sonar blind.
+
+    By rotating through a look-up table of small (±60 Hz, varied phase)
+    variations, successive pings look different to the AEC's statistical
+    model while remaining essentially identical for ranging purposes:
+
+    * The frequency shift is < 2 % of the chirp bandwidth — the
+      cross-correlation peak moves by < 1 sample, so range accuracy is
+      unaffected.
+    * The phase offset has *zero* effect on cross-correlation magnitude;
+      it only changes the waveform's appearance in time domain.
+    * The caller MUST use the returned array as both the emitted signal
+      (played through the speaker) and the reference template (passed to
+      compute_correlation_profile).  Never pre-compute one chirp and reuse
+      it while playing a different variant.
+
+    Parameters
+    ----------
+    f_start, f_end, duration_sec, sample_rate : same as generate_chirp.
+    ping_index : monotonically increasing counter (0, 1, 2, …).
+        Wraps automatically within the variation table.
+
+    Returns
+    -------
+    1D float32 numpy array — the chirp waveform for this ping.
+    """
+    freq_offset, phase_offset = _VARIATION_TABLE[ping_index % len(_VARIATION_TABLE)]
+
+    num_samples = int(duration_sec * sample_rate)
+    t = np.linspace(0, duration_sec, num_samples, endpoint=False)
+
+    # Apply the frequency offset to both endpoints so the sweep rate
+    # (bandwidth) stays constant — only the absolute position shifts.
+    waveform = chirp(
+        t,
+        f0=f_start + freq_offset,
+        f1=f_end + freq_offset,
+        t1=duration_sec,
+        method="linear",
+        phi=np.degrees(phase_offset),  # scipy takes degrees
+    )
+
+    return waveform.astype(np.float32)
+
+
 if __name__ == "__main__":
     # --- Chirp parameters ---
-    F_START = 18000       # Hz
-    F_END = 22000         # Hz
-    DURATION_SEC = 0.015  # 15ms
+    F_START = 4000        # Hz  (audible; every laptop speaker+mic handles this)
+    F_END = 8000          # Hz
+    DURATION_SEC = 0.075  # 75 ms  — long enough for a high time-bandwidth product
     SAMPLE_RATE = 48000   # Hz
 
     # NOTE ON SAMPLE RATE / NYQUIST:
-    # The Nyquist–Shannon sampling theorem says a sample rate must be at
-    # least 2x the highest frequency present in a signal to represent it
-    # without aliasing (i.e. without higher frequencies being misread as
-    # lower "ghost" frequencies). Our chirp goes up to 22kHz, so the sample
-    # rate must be >= 44100 Hz. We use 48000 Hz here, which clears that
-    # bar with margin and is also a standard, widely-supported audio
-    # sample rate for consumer sound cards.
+    # The Nyquist-Shannon theorem requires sample_rate >= 2 x f_max.
+    # Our chirp tops out at 8 kHz, so anything above 16 kHz works;
+    # 48 kHz is the standard consumer audio rate and gives plenty of headroom.
 
     chirp_signal = generate_chirp(F_START, F_END, DURATION_SEC, SAMPLE_RATE)
 

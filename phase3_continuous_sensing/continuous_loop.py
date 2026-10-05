@@ -25,7 +25,8 @@ sys.path.append(os.path.join(os.path.dirname(__file__), "..", "phase2_cross_corr
 sys.path.append(os.path.dirname(__file__))
 
 import audio_io  # noqa: E402
-from chirp_generator import generate_chirp  # noqa: E402
+from chirp_generator import generate_chirp, generate_varied_chirp  # noqa: E402
+from config_loader import load_sonar_config  # noqa: E402
 from distance_calc import delay_to_distance  # noqa: E402
 from rolling_buffer import RollingBuffer  # noqa: E402
 from motion_detector import compare_profiles  # noqa: E402
@@ -69,25 +70,46 @@ def compute_correlation_profile(
 
 
 if __name__ == "__main__":
-    # --- Parameters ---
-    F_START = 18000              # Hz
-    F_END = 22000                 # Hz
-    CHIRP_DURATION_SEC = 0.015    # 15ms
-    RECORD_DURATION_SEC = 0.05    # 50ms per cycle
-    SAMPLE_RATE = 48000            # Hz
-    MIN_DELAY_SEC = 0.003          # ~51cm minimum range, filters direct bleed
-    CYCLE_INTERVAL_SEC = 0.3       # run a sensing cycle every 300ms
-    BUFFER_SIZE = 5                # rolling buffer of last 5 cycles
-    MOTION_THRESHOLD = 0.15        # tune this based on real-world testing
+    # --- Load calibrated band (falls back to 4-8 kHz if not yet calibrated) ---
+    _cfg = load_sonar_config()
+    F_START             = _cfg["f_start"]   # Hz
+    F_END               = _cfg["f_end"]     # Hz
+    SAMPLE_RATE         = _cfg["sample_rate"]
 
-    emitted = generate_chirp(F_START, F_END, CHIRP_DURATION_SEC, SAMPLE_RATE)
+    # A 75 ms chirp sweeping 4 kHz gives time-bandwidth product ~300,
+    # yielding sub-centimetre range resolution via matched-filter correlation.
+    CHIRP_DURATION_SEC  = 0.075   # 75 ms  (was 15 ms at ultrasonic freqs)
+
+    # Record long enough to catch echoes from objects up to ~8 m away
+    # (round-trip at 343 m/s ≈ 47 ms) with comfortable headroom.
+    RECORD_DURATION_SEC = 0.4     # 400 ms
+
+    # Min delay ignores direct speaker->mic bleed. 3 ms ≈ 51 cm min range.
+    MIN_DELAY_SEC       = 0.003
+
+    # Cycle at least as long as the record window plus a gap for processing.
+    CYCLE_INTERVAL_SEC  = 0.6     # 600 ms
+    BUFFER_SIZE         = 5
+    MOTION_THRESHOLD    = 0.15
+
+    print(f"Chirp band : {F_START/1000:.1f}-{F_END/1000:.1f} kHz  "
+          f"| duration: {CHIRP_DURATION_SEC*1000:.0f} ms  "
+          f"| record: {RECORD_DURATION_SEC*1000:.0f} ms")
+
     buffer = RollingBuffer(max_size=BUFFER_SIZE)
+    ping_index = 0
 
     print("Starting continuous sensing loop. Press Ctrl+C to stop.\n")
 
     try:
         while True:
             cycle_start = time.time()
+
+            # Regenerate chirp each ping — small variation defeats OS AEC.
+            emitted = generate_varied_chirp(
+                F_START, F_END, CHIRP_DURATION_SEC, SAMPLE_RATE, ping_index
+            )
+            ping_index += 1
 
             recorded = audio_io.play_and_record(emitted, SAMPLE_RATE, RECORD_DURATION_SEC)
             lag_times_sec, profile = compute_correlation_profile(
