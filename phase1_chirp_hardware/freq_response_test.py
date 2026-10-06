@@ -208,12 +208,23 @@ def run_calibration(verbose: bool = True) -> dict:
 
     if verbose:
         print(f"OK  Best band: {f_start/1000:.1f} kHz -> {f_end/1000:.1f} kHz")
+        print(">>  Measuring system latency...")
+
+    # Emit a short click to find loopback system latency (OS DSP + buffer)
+    click = np.zeros(int(0.4 * SAMPLE_RATE), dtype=np.float32)
+    click[100:132] = 0.9
+    rec = audio_io.play_and_record(click, SAMPLE_RATE, 0.4)
+    latency_s = float(np.argmax(np.abs(rec)) / SAMPLE_RATE)
+    
+    if verbose:
+        print(f"OK  System latency: {latency_s*1000:.1f} ms")
 
     cfg = {
         "f_start": f_start,
         "f_end": f_end,
         "sample_rate": SAMPLE_RATE,
         "calibrated": True,
+        "latency_s": latency_s,
         "note": (f"auto-calibrated on {time.strftime('%Y-%m-%d %T')} - "
                  f"best band {f_start/1000:.1f}-{f_end/1000:.1f} kHz"),
         "band_centres_hz": centres.tolist(),
@@ -226,7 +237,7 @@ def run_calibration(verbose: bool = True) -> dict:
 def write_config(cfg: dict) -> None:
     """Serialise ``cfg`` to ``CONFIG_PATH`` with pretty-printing."""
     os.makedirs(os.path.dirname(os.path.abspath(CONFIG_PATH)), exist_ok=True)
-    with open(CONFIG_PATH, "w") as fh:
+    with open(CONFIG_PATH, "w", encoding="utf-8") as fh:
         json.dump(cfg, fh, indent=2)
     print(f"   Config written -> {os.path.abspath(CONFIG_PATH)}")
 
@@ -235,7 +246,7 @@ def load_config() -> dict:
     """Return the existing config dict, or None if the file doesn't exist."""
     if not os.path.exists(CONFIG_PATH):
         return None
-    with open(CONFIG_PATH) as fh:
+    with open(CONFIG_PATH, encoding="utf-8") as fh:
         return json.load(fh)
 
 

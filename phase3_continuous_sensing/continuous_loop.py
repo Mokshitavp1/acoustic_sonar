@@ -33,7 +33,11 @@ from motion_detector import compare_profiles  # noqa: E402
 
 
 def compute_correlation_profile(
-    emitted: np.ndarray, recorded: np.ndarray, sample_rate: int, min_delay_sec: float
+    emitted: np.ndarray,
+    recorded: np.ndarray,
+    sample_rate: int,
+    min_delay_sec: float,
+    latency_s: float = 0.0,
 ):
     """
     Computes the full cross-correlation magnitude profile between
@@ -52,6 +56,7 @@ def compute_correlation_profile(
         sample_rate: Sample rate in Hz, shared by both signals.
         min_delay_sec: Minimum time delay (seconds) to include — anything
             before this is direct bleed, not a real reflection.
+        latency_s: System audio latency in seconds to subtract from lags.
 
     Returns:
         Tuple of (lag_times_sec, correlation_mag), both 1D numpy arrays
@@ -62,7 +67,7 @@ def compute_correlation_profile(
 
     correlation = correlate(recorded, emitted, mode="full")
     lags = correlation_lags(recorded.shape[0], emitted.shape[0], mode="full")
-    lag_times_sec = lags / sample_rate
+    lag_times_sec = (lags / sample_rate) - latency_s
     correlation_mag = np.abs(correlation)
 
     valid_mask = lag_times_sec >= min_delay_sec
@@ -75,6 +80,7 @@ if __name__ == "__main__":
     F_START             = _cfg["f_start"]   # Hz
     F_END               = _cfg["f_end"]     # Hz
     SAMPLE_RATE         = _cfg["sample_rate"]
+    LATENCY_S           = _cfg.get("latency_s", 0.0)
 
     # A 75 ms chirp sweeping 4 kHz gives time-bandwidth product ~300,
     # yielding sub-centimetre range resolution via matched-filter correlation.
@@ -121,7 +127,7 @@ if __name__ == "__main__":
                 print(f"[sonar] no mic signal (rms={rms:.2e}) — check input device/mic permission")
             else:
                 lag_times_sec, profile = compute_correlation_profile(
-                    emitted, recorded, SAMPLE_RATE, MIN_DELAY_SEC
+                    emitted, recorded, SAMPLE_RATE, MIN_DELAY_SEC, LATENCY_S
                 )
 
                 # 2. Peak quality gate — only trust a correlation peak that stands out

@@ -19,6 +19,7 @@ def find_echo_delay(
     recorded: np.ndarray,
     sample_rate: int,
     min_delay_sec: float,
+    latency_s: float = 0.0,
     debug_plot: bool = True,
 ) -> float:
     """
@@ -53,10 +54,10 @@ def find_echo_delay(
     correlation = correlate(recorded, emitted, mode="full")
 
     # correlation_lags gives the lag (in samples) corresponding to each
-    # entry in `correlation`. A positive lag means `recorded` is delayed
-    # relative to `emitted` — i.e. it's an echo that arrived later.
+    # entry in `correlation`. We subtract latency_s so a lag time of 0.0
+    # corresponds to the moment the speaker actually made sound.
     lags = correlation_lags(recorded.shape[0], emitted.shape[0], mode="full")
-    lag_times_sec = lags / sample_rate
+    lag_times_sec = (lags / sample_rate) - latency_s
 
     # Use magnitude so we're robust to any polarity flip in the echo.
     correlation_mag = np.abs(correlation)

@@ -28,6 +28,7 @@ if __name__ == "__main__":
     F_START             = _cfg["f_start"]    # Hz
     F_END               = _cfg["f_end"]      # Hz
     SAMPLE_RATE         = _cfg["sample_rate"]
+    LATENCY_S           = _cfg.get("latency_s", 0.0)
 
     # 75 ms chirp: long enough for a high time-bandwidth product (good SNR)
     # while still being a quick, barely-audible whoosh.
@@ -51,7 +52,7 @@ if __name__ == "__main__":
 
     # --- Estimate distance ---
     echo_delay_sec = find_echo_delay(
-        emitted, recorded, SAMPLE_RATE, min_delay_sec=MIN_DELAY_SEC, debug_plot=True
+        emitted, recorded, SAMPLE_RATE, min_delay_sec=MIN_DELAY_SEC, latency_s=LATENCY_S, debug_plot=True
     )
     estimated_distance_m = delay_to_distance(echo_delay_sec)
 

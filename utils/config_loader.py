@@ -40,6 +40,7 @@ _FALLBACK = {
     "f_end": 8_000,
     "sample_rate": _DEVICE_RATE,
     "calibrated": False,
+    "latency_s": 0.0,
     "note": f"built-in fallback (4-8 kHz @ {_DEVICE_RATE} Hz) — run freq_response_test.py to auto-calibrate",
 }
 
@@ -75,7 +76,7 @@ def load_sonar_config(config_path: str = None) -> dict:
         return dict(_FALLBACK)
 
     try:
-        with open(path) as fh:
+        with open(path, encoding="utf-8") as fh:
             cfg = json.load(fh)
     except (json.JSONDecodeError, OSError) as exc:
         print(
