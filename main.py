@@ -106,30 +106,31 @@ def sensing_loop(state: SharedSensorState, stop_event: threading.Event):
         recorded = audio_io.play_and_record(emitted, SAMPLE_RATE, RECORD_DURATION_SEC)
         
         distance_m = None
+        profile = None
         # 1. Recording gate — refuse to process silence
         rms = np.sqrt(np.mean(recorded**2))
         if rms < 1e-4:
             print(f"[sonar] no mic signal (rms={rms:.2e}) — check input device/mic permission")
         else:
-            lag_times_sec, profile = compute_correlation_profile(
-                emitted, recorded, SAMPLE_RATE, MIN_DELAY_SEC
+            result = compute_correlation_profile(
+                emitted, recorded, SAMPLE_RATE, max_range_m=5.0
             )
 
-            # 2. Peak quality gate — only trust a correlation peak that stands out
-            peak_index = int(np.argmax(profile))
-            peak = profile[peak_index]
-            mask = np.ones_like(profile, bool)
-            mask[max(0, peak_index-50):peak_index+50] = False
-            floor = np.median(profile[mask]) + 1e-12
-            
-            if peak / floor >= 8.0:
-                # 3. Range clamp — physics limit for the room
-                dist = delay_to_distance(lag_times_sec[peak_index])
-                if dist <= 5.0:
-                    distance_m = dist
+            if result[0] is not None:
+                lag_times_sec, profile, t0_sec = result
+
+                # 2. Peak quality gate — only trust a correlation peak that stands out
+                peak_index = int(np.argmax(profile))
+                peak = profile[peak_index]
+                mask = np.ones_like(profile, bool)
+                mask[max(0, peak_index-50):peak_index+50] = False
+                floor = np.median(profile[mask]) + 1e-12
+                
+                if peak / floor >= 6.0:
+                    distance_m = delay_to_distance(lag_times_sec[peak_index])
 
         raw_motion = False
-        if distance_m is not None:
+        if profile is not None:
             if len(buffer) > 0:
                 reference_profile = buffer.average()
                 raw_motion, _ = compare_profiles(reference_profile, profile, MOTION_THRESHOLD)

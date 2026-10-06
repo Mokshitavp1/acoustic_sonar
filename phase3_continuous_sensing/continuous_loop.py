@@ -36,42 +36,41 @@ def compute_correlation_profile(
     emitted: np.ndarray,
     recorded: np.ndarray,
     sample_rate: int,
-    min_delay_sec: float,
-    latency_s: float = 0.0,
+    max_range_m: float = 5.0,
 ):
     """
-    Computes the full cross-correlation magnitude profile between
-    `recorded` and `emitted`, restricted to lags at or beyond
-    `min_delay_sec` (to exclude direct speaker-to-mic bleed).
-
-    This is the same underlying computation as find_echo_delay() in
-    cross_correlate.py, but returns the whole profile (and its
-    corresponding lag times) instead of just the strongest peak — so it
-    can be stored in a RollingBuffer and compared frame-to-frame for
-    motion detection.
-
-    Args:
-        emitted: 1D numpy array of the known emitted chirp waveform.
-        recorded: 1D numpy array of the recorded audio (same sample rate).
-        sample_rate: Sample rate in Hz, shared by both signals.
-        min_delay_sec: Minimum time delay (seconds) to include — anything
-            before this is direct bleed, not a real reflection.
-        latency_s: System audio latency in seconds to subtract from lags.
-
-    Returns:
-        Tuple of (lag_times_sec, correlation_mag), both 1D numpy arrays
-        of equal length, restricted to lags >= min_delay_sec.
+    Computes the full cross-correlation magnitude profile, self-aligning
+    to the direct speaker-to-mic leak (t0) to cancel out OS buffer latency.
     """
     emitted = np.asarray(emitted, dtype=np.float64)
     recorded = np.asarray(recorded, dtype=np.float64)
 
     correlation = correlate(recorded, emitted, mode="full")
     lags = correlation_lags(recorded.shape[0], emitted.shape[0], mode="full")
-    lag_times_sec = (lags / sample_rate) - latency_s
-    correlation_mag = np.abs(correlation)
+    mag = np.abs(correlation)
 
-    valid_mask = lag_times_sec >= min_delay_sec
-    return lag_times_sec[valid_mask], correlation_mag[valid_mask]
+    floor = np.median(mag[mag > 0]) + 1e-12
+    strong = np.where(mag > 8 * floor)[0]
+    if strong.size == 0:
+        return None, None, None
+
+    ref_candidates = strong[lags[strong] >= 0]
+    if ref_candidates.size == 0:
+        return None, None, None
+
+    ref = ref_candidates[0]
+
+    min_gap = int(0.002 * sample_rate)
+    max_idx = ref + int((2 * max_range_m / 343.0) * sample_rate)
+    
+    seg = mag[ref + min_gap : max_idx]
+    if seg.size == 0:
+        return None, None, None
+
+    lag_times_sec = (lags[ref + min_gap : max_idx] - lags[ref]) / sample_rate
+    t0_sec = lags[ref] / sample_rate
+
+    return lag_times_sec, seg, t0_sec
 
 
 if __name__ == "__main__":
@@ -89,9 +88,6 @@ if __name__ == "__main__":
     # Record long enough to catch echoes from objects up to ~8 m away
     # (round-trip at 343 m/s ≈ 47 ms) with comfortable headroom.
     RECORD_DURATION_SEC = 0.4     # 400 ms
-
-    # Min delay ignores direct speaker->mic bleed. 3 ms ≈ 51 cm min range.
-    MIN_DELAY_SEC       = 0.003
 
     # Cycle at least as long as the record window plus a gap for processing.
     CYCLE_INTERVAL_SEC  = 0.6     # 600 ms
@@ -126,26 +122,27 @@ if __name__ == "__main__":
             if rms < 1e-4:
                 print(f"[sonar] no mic signal (rms={rms:.2e}) — check input device/mic permission")
             else:
-                lag_times_sec, profile = compute_correlation_profile(
-                    emitted, recorded, SAMPLE_RATE, MIN_DELAY_SEC, LATENCY_S
+                result = compute_correlation_profile(
+                    emitted, recorded, SAMPLE_RATE, max_range_m=5.0
                 )
-
-                # 2. Peak quality gate — only trust a correlation peak that stands out
-                peak_index = int(np.argmax(profile))
-                peak = profile[peak_index]
-                mask = np.ones_like(profile, bool)
-                mask[max(0, peak_index-50):peak_index+50] = False
-                floor = np.median(profile[mask]) + 1e-12
                 
-                if peak / floor >= 8.0:
-                    # 3. Range clamp — physics limit for the room
-                    dist = delay_to_distance(lag_times_sec[peak_index])
-                    if dist <= 5.0:
-                        distance_m = dist
+                if result[0] is not None:
+                    lag_times_sec, profile, t0_sec = result
+
+                    # 2. Peak quality gate — only trust a correlation peak that stands out
+                    peak_index = int(np.argmax(profile))
+                    peak = profile[peak_index]
+                    mask = np.ones_like(profile, bool)
+                    mask[max(0, peak_index-50):peak_index+50] = False
+                    floor = np.median(profile[mask]) + 1e-12
+                    
+                    if peak / floor >= 6.0:
+                        distance_m = delay_to_distance(lag_times_sec[peak_index])
+                        print(f"t0={t0_sec*1000:.1f} ms  echo_lag={lag_times_sec[peak_index]*1000:.2f} ms  -> {distance_m*100:.0f} cm")
 
             raw_motion = False
             difference_score = 0.0
-            if distance_m is not None:
+            if result is not None and result[0] is not None:
                 if len(buffer) > 0:
                     reference_profile = buffer.average()
                     raw_motion, difference_score = compare_profiles(reference_profile, profile, MOTION_THRESHOLD)

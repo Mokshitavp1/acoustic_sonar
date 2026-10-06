@@ -37,9 +37,6 @@ if __name__ == "__main__":
     # 400 ms captures echoes from objects up to ~68 m away at 343 m/s.
     RECORD_DURATION_SEC = 0.4     # 400 ms
 
-    # Ignore the first 3 ms (direct speaker-to-mic bleed, ~51 cm bleed zone).
-    MIN_DELAY_SEC       = 0.003
-
     print(f"Using chirp: {F_START/1000:.1f}-{F_END/1000:.1f} kHz  "
           f"{CHIRP_DURATION_SEC*1000:.0f} ms  ({_cfg.get('note', '')})")
 
@@ -51,12 +48,15 @@ if __name__ == "__main__":
     recorded = audio_io.play_and_record(emitted, SAMPLE_RATE, RECORD_DURATION_SEC)
 
     # --- Estimate distance ---
-    echo_delay_sec = find_echo_delay(
-        emitted, recorded, SAMPLE_RATE, min_delay_sec=MIN_DELAY_SEC, latency_s=LATENCY_S, debug_plot=True
-    )
-    estimated_distance_m = delay_to_distance(echo_delay_sec)
-
-    print(f"\nEstimated distance: {estimated_distance_m:.3f} m ({estimated_distance_m*100:.1f} cm)")
+    try:
+        echo_delay_sec = find_echo_delay(
+            emitted, recorded, SAMPLE_RATE, max_range_m=5.0, debug_plot=True
+        )
+        estimated_distance_m = delay_to_distance(echo_delay_sec)
+        print(f"\nEstimated distance: {estimated_distance_m:.3f} m ({estimated_distance_m*100:.1f} cm)")
+    except ValueError as e:
+        print(f"\nNo valid echo found: {e}")
+        sys.exit(1)
 
     # --- Compare against ground truth ---
     while True:

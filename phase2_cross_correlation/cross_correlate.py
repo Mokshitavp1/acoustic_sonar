@@ -18,80 +18,56 @@ def find_echo_delay(
     emitted: np.ndarray,
     recorded: np.ndarray,
     sample_rate: int,
-    min_delay_sec: float,
-    latency_s: float = 0.0,
+    max_range_m: float = 5.0,
     debug_plot: bool = True,
 ) -> float:
     """
-    Cross-correlates `recorded` against `emitted` to find the time delay
-    of the strongest echo peak, ignoring any peak occurring before
-    `min_delay_sec` (the direct speaker-to-mic bleed path, which is not
-    a real reflection).
-
-    Args:
-        emitted: 1D numpy array of the known emitted chirp waveform.
-        recorded: 1D numpy array of the recorded audio (same sample rate).
-        sample_rate: Sample rate in Hz, shared by both signals.
-        min_delay_sec: Minimum time delay (seconds) to consider — any
-            correlation peak occurring before this is assumed to be
-            direct bleed rather than a real echo, and is ignored.
-        debug_plot: If True, shows a plot of the cross-correlation output
-            with the detected peak marked.
-
-    Returns:
-        Estimated time delay, in seconds, of the strongest echo peak.
-
-    Raises:
-        ValueError: if no correlation peak is found at or beyond
-            `min_delay_sec` (e.g. min_delay_sec is longer than the
-            recording itself).
+    Finds the time delay of the strongest echo by first locating the
+    direct speaker-to-mic leak (t0) and then searching for the strongest
+    secondary peak in the physically plausible window.
     """
     emitted = np.asarray(emitted, dtype=np.float64)
     recorded = np.asarray(recorded, dtype=np.float64)
 
-    # Full cross-correlation: for each possible lag, how well does a
-    # shifted copy of `emitted` line up with `recorded`.
     correlation = correlate(recorded, emitted, mode="full")
-
-    # correlation_lags gives the lag (in samples) corresponding to each
-    # entry in `correlation`. We subtract latency_s so a lag time of 0.0
-    # corresponds to the moment the speaker actually made sound.
     lags = correlation_lags(recorded.shape[0], emitted.shape[0], mode="full")
-    lag_times_sec = (lags / sample_rate) - latency_s
+    mag = np.abs(correlation)
 
-    # Use magnitude so we're robust to any polarity flip in the echo.
-    correlation_mag = np.abs(correlation)
+    floor = np.median(mag[mag > 0]) + 1e-12
+    strong = np.where(mag > 8 * floor)[0]
+    if strong.size == 0:
+        raise ValueError("No correlation signal found (mic might be muted or blocked).")
 
-    # Mask out anything before min_delay_sec (direct bleed) and anything
-    # at negative delay (not physically meaningful for an echo).
-    valid_mask = lag_times_sec >= min_delay_sec
-    if not np.any(valid_mask):
-        raise ValueError(
-            f"No correlation samples found at or beyond min_delay_sec={min_delay_sec}s. "
-            "Check that the recording is long enough and min_delay_sec isn't too large."
-        )
+    # t0 = earliest strong peak (direct leak); require lag >= 0 to avoid wrap
+    ref_candidates = strong[lags[strong] >= 0]
+    if ref_candidates.size == 0:
+        raise ValueError("No positive-lag correlation signal found.")
 
-    valid_indices = np.where(valid_mask)[0]
-    peak_index_within_valid = np.argmax(correlation_mag[valid_indices])
-    peak_index = valid_indices[peak_index_within_valid]
-    peak_delay_sec = lag_times_sec[peak_index]
+    ref = ref_candidates[0]
+
+    min_gap = int(0.002 * sample_rate)  # ignore < ~35 cm from laptop
+    max_idx = ref + int((2 * max_range_m / 343.0) * sample_rate)
+    
+    seg = mag[ref + min_gap : max_idx]
+    if seg.size == 0 or seg.max() < 6 * floor:
+        raise ValueError("No valid echo found within max range.")
+
+    echo_idx = ref + min_gap + int(np.argmax(seg))
+    delay_s = (lags[echo_idx] - lags[ref]) / sample_rate
 
     if debug_plot:
         plt.figure(figsize=(10, 4))
-        plt.plot(lag_times_sec * 1000, correlation_mag, label="Cross-correlation magnitude")
-        plt.axvline(
-            peak_delay_sec * 1000,
-            color="red",
-            linestyle="--",
-            label=f"Detected peak: {peak_delay_sec*1000:.2f}ms",
-        )
-        plt.axvline(
-            min_delay_sec * 1000,
-            color="gray",
-            linestyle=":",
-            label=f"min_delay_sec cutoff: {min_delay_sec*1000:.2f}ms",
-        )
-        plt.title("Cross-correlation: recorded vs. emitted chirp")
+        lag_times_ms = lags / sample_rate * 1000
+        plt.plot(lag_times_ms, mag, label="Cross-correlation magnitude")
+        
+        t0_ms = lags[ref] / sample_rate * 1000
+        echo_ms = lags[echo_idx] / sample_rate * 1000
+        
+        plt.axvline(t0_ms, color="gray", linestyle=":", label=f"t0 (leak): {t0_ms:.2f}ms")
+        plt.axvline(echo_ms, color="red", linestyle="--", label=f"Echo peak: {echo_ms:.2f}ms")
+        
+        plt.xlim(t0_ms - 5, echo_ms + 10)
+        plt.title("Cross-correlation (Self-aligned)")
         plt.xlabel("Lag (ms)")
         plt.ylabel("Correlation magnitude")
         plt.legend()
@@ -99,7 +75,7 @@ def find_echo_delay(
         plt.tight_layout()
         plt.show()
 
-    return peak_delay_sec
+    return delay_s
 
 
 if __name__ == "__main__":
@@ -124,7 +100,10 @@ if __name__ == "__main__":
     fake_recording[bleed_delay_samples: bleed_delay_samples + chirp_signal.shape[0]] += 0.3 * chirp_signal
     fake_recording[echo_delay_samples: echo_delay_samples + chirp_signal.shape[0]] += 0.6 * chirp_signal
 
-    detected_delay = find_echo_delay(
-        chirp_signal, fake_recording, SAMPLE_RATE, min_delay_sec=0.003
-    )
-    print(f"Expected echo delay: 6.00ms, Detected: {detected_delay*1000:.2f}ms")
+    try:
+        detected_delay = find_echo_delay(
+            chirp_signal, fake_recording, SAMPLE_RATE, max_range_m=5.0, debug_plot=False
+        )
+        print(f"Expected echo delay: 6.00ms, Detected: {detected_delay*1000:.2f}ms")
+    except ValueError as e:
+        print(f"Self-test failed: {e}")
