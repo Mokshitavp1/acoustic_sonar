@@ -92,6 +92,7 @@ def sensing_loop(state: SharedSensorState, stop_event: threading.Event):
     """
     buffer = RollingBuffer(max_size=BUFFER_SIZE)
     ping_index = 0
+    motion_history = []
 
     while not stop_event.is_set():
         cycle_start = time.time()
@@ -103,20 +104,46 @@ def sensing_loop(state: SharedSensorState, stop_event: threading.Event):
         ping_index += 1
 
         recorded = audio_io.play_and_record(emitted, SAMPLE_RATE, RECORD_DURATION_SEC)
-        lag_times_sec, profile = compute_correlation_profile(
-            emitted, recorded, SAMPLE_RATE, MIN_DELAY_SEC
-        )
+        
+        distance_m = None
+        # 1. Recording gate — refuse to process silence
+        rms = np.sqrt(np.mean(recorded**2))
+        if rms < 1e-4:
+            print(f"[sonar] no mic signal (rms={rms:.2e}) — check input device/mic permission")
+        else:
+            lag_times_sec, profile = compute_correlation_profile(
+                emitted, recorded, SAMPLE_RATE, MIN_DELAY_SEC
+            )
 
-        motion_detected = False
-        if len(buffer) > 0:
-            reference_profile = buffer.average()
-            motion_detected, _ = compare_profiles(reference_profile, profile, MOTION_THRESHOLD)
+            # 2. Peak quality gate — only trust a correlation peak that stands out
+            peak_index = int(np.argmax(profile))
+            peak = profile[peak_index]
+            mask = np.ones_like(profile, bool)
+            mask[max(0, peak_index-50):peak_index+50] = False
+            floor = np.median(profile[mask]) + 1e-12
+            
+            if peak / floor >= 8.0:
+                # 3. Range clamp — physics limit for the room
+                dist = delay_to_distance(lag_times_sec[peak_index])
+                if dist <= 5.0:
+                    distance_m = dist
 
-        peak_index = int(np.argmax(profile))
-        distance_m = delay_to_distance(lag_times_sec[peak_index])
+        raw_motion = False
+        if distance_m is not None:
+            if len(buffer) > 0:
+                reference_profile = buffer.average()
+                raw_motion, _ = compare_profiles(reference_profile, profile, MOTION_THRESHOLD)
+            buffer.add(profile)
+            
+        motion_history.append(raw_motion)
+        if len(motion_history) > 5:
+            motion_history.pop(0)
+            
+        # Require 3 of 5 valid motion triggers
+        motion_detected = sum(motion_history) >= 3
 
-        state.update(distance_m, motion_detected, recorded)
-        buffer.add(profile)
+        report_dist = distance_m if distance_m is not None else 5.0
+        state.update(report_dist, motion_detected, recorded)
 
         elapsed = time.time() - cycle_start
         stop_event.wait(max(0.0, CYCLE_INTERVAL_SEC - elapsed))

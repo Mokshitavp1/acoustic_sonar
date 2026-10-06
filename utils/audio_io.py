@@ -204,14 +204,17 @@ def play_and_record(
         result = _try_play_and_record_wasapi_exclusive(padded, sample_rate)
         if result is not None:
             return result
-        warnings.warn(
-            "[audio_io] WASAPI exclusive mode unavailable — falling back to "
-            "shared mode.  OS audio processing (AGC/AEC) may still be active.\n"
-            "  To disable it manually: Settings > Sound > your mic > "
-            "Audio enhancements > Off,  and set format to 48000 Hz 24-bit.",
-            RuntimeWarning,
-            stacklevel=2,
-        )
+        global _warned_wasapi
+        if not globals().get('_warned_wasapi'):
+            warnings.warn(
+                "[audio_io] WASAPI exclusive mode unavailable — falling back to "
+                "shared mode.  OS audio processing (AGC/AEC) may still be active.\n"
+                "  To disable it manually: Settings > Sound > your mic > "
+                "Audio enhancements > Off,  and set format to 48000 Hz 24-bit.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+            _warned_wasapi = True
 
     # --- Tier 2 / 3: standard shared-mode (all platforms) ------------------
     try:

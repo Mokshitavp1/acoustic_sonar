@@ -1,0 +1,7 @@
+{
+  "f_start": 4000.0,
+  "f_end": 8000.0,
+  "sample_rate": 48000,
+  "calibrated": false,
+  "note": "built-in fallback (4-8 kHz) — run freq_response_test.py to auto-calibrate"
+}
